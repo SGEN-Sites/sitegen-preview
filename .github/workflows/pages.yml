@@ -9,6 +9,7 @@ on:
   push:
     branches: [main]
     tags: ['*-v*']
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -30,7 +31,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,12 +41,14 @@ jobs:
         with:
           node-version: 20
       - run: node tools/assemble.mjs _site
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       pages: write
