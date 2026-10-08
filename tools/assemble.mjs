@@ -100,34 +100,76 @@ function exportTag(tag, dest) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// The master page, in the SGEN artifact house format. tools/house.html is a copy of
+// .claude/skills/sgen-artifact-format/template.html from the SGEN repo (the build runs on GitHub,
+// where that folder does not exist); re-copy it when the house format changes. It is filled the
+// way sgen-link-check fills it: h2/h3 ids, the nav's data-target links and the RAIL map in step.
 function masterPage(clients, built) {
-  const rows = clients.map((c) => `
-    <tr>
-      <td><strong>${esc(c.name || c.slug)}</strong><br><span class="dim">${esc(c.slug)}</span></td>
-      <td>${esc(c.template || '')}</td>
-      <td>${c.site ? `<a href="${esc(c.site)}" rel="noopener nofollow">${esc(c.site.replace(/^https?:\/\//, ''))}</a>` : ''}</td>
-      <td><a class="btn" href="${esc(c.slug)}/latest/">Open v${c.versions.at(-1).n}</a></td>
-      <td>${c.versions.slice().reverse().map((v) => `<a href="${esc(c.slug)}/v${v.n}/">v${v.n}</a> <span class="dim">${esc(v.date)}</span> · <a class="dim" href="${esc(c.slug)}/v${v.n}/seo.json">seo</a>`).join('<br>')}</td>
-    </tr>`).join('');
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-${NOINDEX}
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SiteGen previews</title>
-<style>
-:root{--bg:#f7f7f5;--fg:#1b1d1f;--dim:#6b7075;--line:#e2e2de;--acc:#0b6bcb}
-@media (prefers-color-scheme:dark){:root{--bg:#141618;--fg:#e8e9ea;--dim:#9aa0a6;--line:#2a2e32;--acc:#6aa9ff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:1100px;margin:0 auto;padding:32px 16px}h1{margin:0 0 4px;font-size:24px}
-p{margin:0 0 20px;color:var(--dim)}.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}
-th,td{text-align:left;vertical-align:top;padding:12px 10px;border-bottom:1px solid var(--line)}th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
-a{color:var(--acc)}.dim{color:var(--dim);font-size:13px}.btn{display:inline-block;padding:6px 12px;border:1px solid var(--acc);border-radius:6px;text-decoration:none;white-space:nowrap}
-</style></head><body><main>
-<h1>SiteGen previews</h1>
-<p>${clients.length} client${clients.length === 1 ? '' : 's'} · built ${esc(built)} · every page is noindex · versions.json lists every build</p>
-${clients.length ? `<div class="wrap"><table><thead><tr><th>Client</th><th>Template</th><th>Live site</th><th>Latest</th><th>Versions</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No client builds published yet.</p>'}
-</main></body></html>
-`;
+  const tag = (cls, t) => `<span class="tag ${cls}">${esc(t)}</span>`;
+  let n = 0;
+  const h2 = (id, title) => `<h2 id="${id}"><span class="h-badge">${String(++n).padStart(2, '0')}</span><span class="h-text">${esc(title)}</span><a class="h-anchor" href="#${id}" aria-label="Link to this section">#</a></h2>`;
+  const h3 = (id, title) => `<h3 id="${id}"><span class="h-text">${esc(title)}</span><a class="h-anchor" href="#${id}" aria-label="Link to this section">#</a></h3>`;
+  const S = [];
+  const add = (id, title, body, subs = []) => S.push({ id, title, html: h2(id, title) + body, subs });
+
+  const row = (c) => {
+    const last = c.versions.at(-1);
+    return [
+      `<strong>${esc(c.name || c.slug)}</strong><br><small><code>${esc(c.slug)}</code></small>`,
+      c.site ? `<a href="${esc(c.site)}" rel="noopener nofollow">${esc(c.site.replace(/^https?:\/\//, ''))}</a>` : '<small>—</small>',
+      `<a href="${esc(c.slug)}/latest/">Open v${last.n}</a>`,
+      c.versions.slice().reverse().map((v) => `<a href="${esc(c.slug)}/v${v.n}/">v${v.n}</a> <small>${esc(v.date)} · ${v.pages} pages</small>`).join('<br>'),
+      `<a href="${esc(c.slug)}/v${last.n}/seo.json">seo.json</a>`,
+    ];
+  };
+  const table = (rows) => `<div class="table-wrap"><table><thead><tr><th>Client</th><th>Live site</th><th>Latest</th><th>Versions</th><th>SEO data</th></tr></thead><tbody>${
+    rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+
+  const byTpl = new Map();
+  for (const c of clients) {
+    const t = c.template || 'other';
+    if (!byTpl.has(t)) byTpl.set(t, []);
+    byTpl.get(t).push(c);
+  }
+  const groups = [...byTpl].sort(([a], [b]) => a.localeCompare(b));
+  const slugId = (t) => `tpl-${String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  add('clients', 'Clients',
+    clients.length
+      ? groups.map(([t, cs]) => h3(slugId(t), `${t} (${cs.length})`) + table(cs.map(row))).join('')
+      : `<p>${tag('t-mid', 'empty')} No client builds published yet.</p>`,
+    groups.map(([t, cs]) => ({ id: slugId(t), text: `${t} (${cs.length})` })));
+
+  add('seo', 'Indexing and SEO data',
+    `<div class="legend">
+      <div class="leg">${tag('t-no', 'noindex')}<small>Every published page carries <code>noindex, nofollow</code>. Search engines drop it; nothing here competes with a client's live site.</small></div>
+      <div class="leg">${tag('t-ok', 'kept')}<small>Title, description, canonical, Open Graph, hreflang and JSON-LD are left exactly as built, so scanners and audits read real values.</small></div>
+      <div class="leg">${tag('t-mid', 'as built')}<small><code>seo.json</code> records each page's robots value from before the noindex was added.</small></div>
+    </div>
+    <p>There is no robots.txt block. A crawler that may not fetch a page never sees its noindex, and an audit tool that obeys robots.txt would see nothing. <a href="versions.json">versions.json</a> lists every client and version for tooling.</p>`);
+
+  add('versions', 'How versions work',
+    `<p>Each client has a branch, <code>client/&lt;slug&gt;</code>. A version is a tag on it, <code>&lt;slug&gt;-v1</code>, <code>&lt;slug&gt;-v2</code>, and every version stays published at <code>/&lt;slug&gt;/v&lt;N&gt;/</code>. <code>/&lt;slug&gt;/latest/</code> is the highest one. Commits without a tag are not published.</p>`);
+
+  const pages = clients.reduce((t, c) => t + c.versions.reduce((u, v) => u + v.pages, 0), 0);
+  const nav = `<div class="nav-group"><div class="nav-label">Previews</div><ul>${S.map((s, i) =>
+    `<li><a href="#${s.id}" data-target="${s.id}"><span class="n-badge">${String(i + 1).padStart(2, '0')}</span><span class="n-text">${esc(s.title)}</span></a></li>`).join('')}</ul></div>`;
+  const art = `<h1 id="doc-title"><span class="h-text">SiteGen previews</span><a class="h-anchor" href="#doc-title" aria-label="Link to this section">#</a></h1>
+    <p>${clients.length} client site${clients.length === 1 ? '' : 's'} built by SiteGen, ${pages} pages across every version. Previews for review only: none of these pages is indexed.</p>
+    ${S.map((s) => s.html).join('\n')}
+    <div class="foot">sitegen-preview · assembled from the repository's version tags · ${esc(built)} UTC · preview builds, not live sites</div>`;
+  const rail = Object.fromEntries(S.filter((s) => s.subs.length).map((s) => [s.id, s.subs]));
+
+  let t = fs.readFileSync(new URL('./house.html', import.meta.url), 'utf8');
+  const swap = (re, val) => { if (!re.test(t)) throw new Error(`master page: house template anchor not found: ${re}`); t = t.replace(re, () => val); };
+  swap(/<title>[\s\S]*?<\/title>/, `<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${NOINDEX}\n<title>SGEN — SiteGen previews</title>`);
+  swap(/<meta name="description" content="[^"]*">/, `<meta name="description" content="SiteGen client site previews: every client, template and version. Not indexed.">`);
+  swap(/<\/style>/, '</style>\n</head><body>');
+  swap(/<div class="doctitle">[\s\S]*?<\/div>/, '<div class="doctitle">SiteGen previews</div>');
+  swap(/<span class="chip live">[\s\S]*?<\/span>/, `<span class="chip live">${clients.length} clients · noindex</span>`);
+  swap(/<div class="nav-group">[\s\S]*?<\/ul><\/div>/, nav);
+  swap(/(<main class="art">)[\s\S]*?(<\/main>)/, `<main class="art">\n${art}\n</main>`);
+  swap(/var RAIL=\{\};/, `var RAIL=${JSON.stringify(rail).replace(/</g, '\\u003c')};`);
+  return `${t.trimEnd()}\n</body></html>\n`;
 }
 
 export function main() {
