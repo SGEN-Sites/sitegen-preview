@@ -1,14 +1,14 @@
 name: Publish previews
 
 # Main holds only the tooling. Client files live on `client/<slug>` branches and a version is
-# published by pushing a tag `<slug>-v<N>`. The github-pages environment only accepts deployments
-# from main, so a tag push does not deploy itself: it asks this same workflow to run on main,
-# which then rebuilds the whole site from every tag.
+# recorded by pushing a tag `<slug>-v<N>`. A tag push cannot start this workflow: GitHub reads the
+# workflow from the pushed commit, and a client commit carries no .github/. Every run on main
+# rebuilds the whole site from every tag, so a version goes live on the next push to main or a
+# manual dispatch.
 
 on:
   push:
     branches: [main]
-    tags: ['*-v*']
   pull_request:
   workflow_dispatch:
 
@@ -20,16 +20,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  relay:
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
-        env:
-          GH_TOKEN: ${{ github.token }}
-
   build:
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
