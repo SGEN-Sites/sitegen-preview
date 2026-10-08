@@ -25,6 +25,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const OUT = path.resolve(process.argv[2] || '_site');
+// Each client's current live site, keyed by slug. A client branch's preview.json `site` wins.
+const SITES = JSON.parse(fs.readFileSync(new URL('./sites.json', import.meta.url), 'utf8'));
 const git = (...a) => execFileSync('git', a, { encoding: 'utf8', maxBuffer: 1 << 30 }).trim();
 
 const NOINDEX = '<meta name="robots" content="noindex, nofollow">';
@@ -119,10 +121,9 @@ function masterPage(clients, built) {
       c.site ? `<a href="${esc(c.site)}" rel="noopener nofollow">${esc(c.site.replace(/^https?:\/\//, ''))}</a>` : '<small>—</small>',
       `<a href="${esc(c.slug)}/latest/">Open v${last.n}</a>`,
       c.versions.slice().reverse().map((v) => `<a href="${esc(c.slug)}/v${v.n}/">v${v.n}</a> <small>${esc(v.date)} · ${v.pages} pages</small>`).join('<br>'),
-      `<a href="${esc(c.slug)}/v${last.n}/seo.json">seo.json</a>`,
     ];
   };
-  const table = (rows) => `<div class="table-wrap"><table><thead><tr><th>Client</th><th>Live site</th><th>Latest</th><th>Versions</th><th>SEO data</th></tr></thead><tbody>${
+  const table = (rows) => `<div class="table-wrap"><table><thead><tr><th>Client</th><th>Live site</th><th>Latest</th><th>Versions</th></tr></thead><tbody>${
     rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 
   const byTpl = new Map();
@@ -198,7 +199,7 @@ export function main() {
       versions.push({ n: v.n, tag: v.tag, commit, date, files: r.files, pages: r.pages.length });
     }
     fs.cpSync(path.join(OUT, slug, `v${versions.at(-1).n}`), path.join(OUT, slug, 'latest'), { recursive: true });
-    clients.push({ slug, name: meta.name, template: meta.template, site: meta.site, versions });
+    clients.push({ slug, name: meta.name, template: meta.template, site: meta.site || SITES[slug], versions });
   }
   const built = new Date().toISOString().slice(0, 10);
   fs.writeFileSync(path.join(OUT, 'versions.json'), `${JSON.stringify({ built, clients }, null, 1)}\n`);
